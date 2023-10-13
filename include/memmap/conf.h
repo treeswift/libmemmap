@@ -59,6 +59,20 @@ typedef HANDLE(*handle_from_posix_fd_hook)(int fd, void* hint);
 int set_handle_from_posix_fd_hook(handle_from_posix_fd_hook hook, void * hint);
 
 /**
+ * As there is no obvious way to determine `fd` access mode from itself or the
+ * corresponding file HANDLE, and there is at most one FileMapping object 
+ */
+enum fd_access_inference_policy
+{
+    fd_access_inference_policy__eager = 0,
+    fd_access_inference_policy__probe,
+    fd_access_inference_policy__asreq,
+};
+
+void set_exec_bit_inference_policy(enum fd_access_inference_policy policy);
+void set_write_bit_inference_policy(enum fd_access_inference_policy policy);
+
+/**
  * Directory to host memory sharing files (see long comment above).
  * `set_shared_memory_dir` returns 0 on success and -1 on failure.
  *  Possible `errno` values include ENOENT, ENOTDIR and EACCES.
