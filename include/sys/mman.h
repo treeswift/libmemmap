@@ -78,7 +78,9 @@ int madvise(void* addr, size_t len, int advice);
 int mlock (const void* addr, size_t length);
 int munlock(const void* addr, size_t length);
 
+/* Not atomic on Windows */
 int mlockall(int flags);
+/* Not atomic on Windows */
 int munlockall();
 
 int mincore(void* start, size_t length, unsigned char* status);
