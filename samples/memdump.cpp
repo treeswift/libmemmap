@@ -12,9 +12,11 @@
 //
 
 int main(int argc, char **argv) {
+#ifdef PAGE_SIZE
+    printf("Page size (static):\t0x%x (%ld) bytes\n", PAGE_SIZE, PAGE_SIZE);
+#endif
 
-    //
-
-    printf("This is one half.\n");
+    long page_size = memmap_sysconf(_SC_PAGESIZE);
+    printf("Page size (dynamic):\t0x%x (%ld) bytes\n", page_size, page_size);
     return 0;
 }
