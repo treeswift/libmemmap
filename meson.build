@@ -4,7 +4,11 @@ project('libmemmap', 'cpp',
   )
 
 memmap = shared_library('memmap',
-    files('src/mem.cpp'),
+    files(
+      'src/mem.cpp',
+      'src/map.cpp',
+      'src/shm.cpp',
+    ),
     include_directories: ['include'],
     link_args: ['-lkernel32'],
     install: true,
