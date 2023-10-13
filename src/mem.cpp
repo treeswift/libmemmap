@@ -8,9 +8,9 @@ extern "C" {
 extern long sysconf(int name) __attribute((weak));
 
 int getpagesize() {
-    SYSTEM_INFO mbi;
-    GetSystemInfo(&mbi);
-    return mbi.dwPageSize;
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return si.dwPageSize;
 }
 
 long memmap_sysconf(int name) {
