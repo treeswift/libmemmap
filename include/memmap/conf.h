@@ -1,5 +1,5 @@
-#ifndef _MEMMAP_PROC_H_
-#define _MEMMAP_PROC_H_
+#ifndef _MEMMAP_CONF_H_
+#define _MEMMAP_CONF_H_
 
 #include <windows.h>
 
@@ -95,4 +95,4 @@ void emergency_mode_assume_unreliable_heap();
 #endif
 
 
-#endif /* _MEMMAP_PROC_H_ */
+#endif /* _MEMMAP_CONF_H_ */
