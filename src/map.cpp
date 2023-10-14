@@ -22,8 +22,8 @@ enum class ModusVivendi {
     EMERGENCY = 0,
 } _modus_vivendi = ModusVivendi::NORMAL;
 
-enum fd_access_inference_policy exec_policy = fd_access_inference_policy__probe;
-enum fd_access_inference_policy write_policy = fd_access_inference_policy__probe;
+enum fd_access_inference_policy _exec_policy = fd_access_inference_policy__probe;
+enum fd_access_inference_policy _write_policy = fd_access_inference_policy__probe;
 
 } // anonymouys / nonreusable
 
@@ -71,11 +71,11 @@ void emergency_mode_assume_unreliable_heap() {
 }
 
 void set_exec_bit_inference_policy(enum fd_access_inference_policy policy) {
-    exec_policy = policy;
+    _exec_policy = policy;
 }
 
 void set_write_bit_inference_policy(enum fd_access_inference_policy policy) {
-    write_policy = policy;
+    _write_policy = policy;
 }
 
 /////////////////////
@@ -151,10 +151,6 @@ int munlockall() {
     return -1;
 }
 
-/* MOREINFO move queries to src/map.cpp? */
-int mincore(void* start, size_t length, unsigned char* status) {
-    // VirtualQuery (iterative call of, once per homogeneous page range)
-    return -1;
-}
+// `mincore` is defined in mem.cpp
 
 } // extern "C"

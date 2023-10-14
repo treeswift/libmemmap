@@ -54,7 +54,7 @@ int main(int, char **) {
 #endif
 
     long page_size = memmap_sysconf(_SC_PAGESIZE);
-    printf("Page size (dynamic):\t0x%x (%ld) bytes\n", page_size, page_size);
+    printf("Page size (dynamic):\t0x%lx (%ld) bytes\n", page_size, page_size);
 
     SYSTEM_INFO si;
     GetSystemInfo(&si);
