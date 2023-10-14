@@ -5,7 +5,7 @@
 
 # Technical notes
 
-Build the library with [Meson](https://mesonbuild.com) or use Meson to generate project files for your favorite build system.
+Build the library with [Meson](https://mesonbuild.com)/[Ninja](https://ninja-build.org) or use Meson to generate project files for your favorite build system.
 
 ## Limitations
 
