@@ -22,7 +22,7 @@
 std::string VisualizeProtection(DWORD prot) {
     std::string vis;
     vis.resize(3, ' ');
-    std::sprintf(&vis[0], "%03x", prot);
+    std::sprintf(&vis[0], "%03lx", prot);
     vis.append(" (");
     vis.push_back(prot & 0x400 ? 'b' : '-');
     vis.push_back(prot & 0x200 ? 'n' : '-');
@@ -48,7 +48,7 @@ std::string VisualizeProtection(DWORD prot) {
     return vis;
 }
 
-int main(int argc, char **argv) {
+int main(int, char **) {
 #ifdef PAGE_SIZE
     printf("Page size (static):\t0x%x (%ld) bytes\n", PAGE_SIZE, PAGE_SIZE);
 #endif
@@ -73,6 +73,7 @@ int main(int argc, char **argv) {
         DWORD asreq = mbi.AllocationProtect; // flags within 0x7ff
         DWORD asnow = mbi.Protect;
         // PartitionId == ?
+        (void) alloc;
 
         std::string vis_asreq;
         std::string vis_asnow = VisualizeProtection(asnow);
