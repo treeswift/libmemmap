@@ -73,6 +73,18 @@ void set_exec_bit_inference_policy(enum fd_access_inference_policy policy);
 void set_write_bit_inference_policy(enum fd_access_inference_policy policy);
 
 /**
+ * Various boolean flags determining strict vs. relaxed implementation policies.
+ */
+
+/**
+ * strict => ENOMEM if `mincore` range exceeds memory available to applications;
+ *           ENOMEM if `mincore` range contains logically unmapped memory;
+ *           EINVAL if `mincore` range start address is not a page boundary.
+ * !strict => simply return 0 for the affected pages, but no `errno` value.
+ */
+void set_mincore_strict_policy(int strict);
+
+/**
  * Directory to host memory sharing files (see long comment above).
  * `set_shared_memory_dir` returns 0 on success and -1 on failure.
  *  Possible `errno` values include ENOENT, ENOTDIR and EACCES.
