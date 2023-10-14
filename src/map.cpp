@@ -22,6 +22,9 @@ enum class ModusVivendi {
     EMERGENCY = 0,
 } _modus_vivendi = ModusVivendi::NORMAL;
 
+enum fd_access_inference_policy exec_policy = fd_access_inference_policy__probe;
+enum fd_access_inference_policy write_policy = fd_access_inference_policy__probe;
+
 } // anonymouys / nonreusable
 
 // m[un]map(ANON): VirtualAlloc, VirtualFree
@@ -65,6 +68,14 @@ bool TrustTheHeap() {
 
 void emergency_mode_assume_unreliable_heap() {
     _modus_vivendi = ModusVivendi::EMERGENCY;
+}
+
+void set_exec_bit_inference_policy(enum fd_access_inference_policy policy) {
+    exec_policy = policy;
+}
+
+void set_write_bit_inference_policy(enum fd_access_inference_policy policy) {
+    write_policy = policy;
 }
 
 /////////////////////
