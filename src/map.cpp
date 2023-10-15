@@ -241,7 +241,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
         if(prot & PROT_EXEC) {
             fv_access |= FILE_MAP_EXECUTE;
         }
-        _MEMMAP_LOG("MapViewOfFile(%p, %lx, 0:%lx, %lx)", h_map, fv_access, fv_offset, fv_length);
+        _MEMMAP_LOG("MapViewOfFile(%p, %lx, 0:%lx, %lx)", h_map, fv_access, (DWORD)fv_offset, (DWORD)fv_length);
         addr = MapViewOfFile(h_map, fv_access, 0, fv_offset, fv_length);
         if(!addr) {
             _MEMMAP_LOG("invalid mview GetLastError()=%lx", GetLastError());
@@ -261,7 +261,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
         // length is not checked, but silently rounded up:
         length += page_size - 1; length -= length % page_size;
 
-        _MEMMAP_LOG("VirtualAlloc(%p, %lx, %lx, %lx)", addr, length, vm_request, protection);
+        _MEMMAP_LOG("VirtualAlloc(%p, %lx, %lx, %lx)", addr, (DWORD)length, vm_request, protection);
         addr = VirtualAlloc(addr, length, vm_request, protection);
         if(!addr) {
             errno = (GetLastError() == ERROR_INVALID_ADDRESS) ? EINVAL : ENOMEM;
@@ -314,7 +314,7 @@ int msync(void* addr, size_t length, int flags) {
 
     if(RoundDownFailFast(addr, length)) return -1;
 
-    _MEMMAP_LOG("FlushViewOfFile(%p, %lx)", addr, length);
+    _MEMMAP_LOG("FlushViewOfFile(%p, %lx)", addr, (DWORD)length);
     return FlushViewOfFile(addr, length) ? 0 : (errno = ENOMEM, -1);
 }
 
