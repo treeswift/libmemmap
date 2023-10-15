@@ -122,6 +122,12 @@ void test_mmap() {
                        : "nope, `msync`ing a private view is not allowed\n");
     _commit(hc); // FlushFileBuffers()
 
+    // just make sure it doesn't crash
+    void* rnddown = (char*)holycow - (kCowField % page_size);
+    madvise(rnddown, page_size, MADV_WILLNEED); // should be a no-op
+    madvise(rnddown, page_size, MADV_DONTNEED); // offer to the kernel
+    madvise(rnddown, page_size, MADV_WILLNEED); // take back
+
     ValidateFileData(fd);
     printf("Testing the other (cow) file...\n");
     fflush(stdout);

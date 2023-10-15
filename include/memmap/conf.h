@@ -94,6 +94,13 @@ void set_mmap_strict_policy(int strict);
 void set_mmap_apply_executable_image_sections(int parse_coff);
 
 /**
+ * When memory is offered back to the OS with MADV_DONTNEED, resoluteness indicates
+ * how serious the application is about the offer. 0 means "you can take it if you
+ * really want"; 3 is the yiddishe mama level. The default is 2.
+ */
+void set_madvise_offer_resoluteness(int res);
+
+/**
  * strict => ENOMEM if `mincore` range exceeds memory available to applications;
  *           ENOMEM if `mincore` range contains logically unmapped memory;
  *           EINVAL if `mincore` range start address is not a page boundary.

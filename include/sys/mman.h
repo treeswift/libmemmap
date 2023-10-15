@@ -86,7 +86,7 @@ int munmap(void* addr,  size_t length);
 
 int mprotect(void* addr, size_t length, int flags);
 int msync(void* addr, size_t length, int flags);
-int madvise(void* addr, size_t len, int advice);
+int madvise(void* addr, size_t length, int advice);
 #define posix_madvise madvise
 
 int mlock (const void* addr, size_t length);

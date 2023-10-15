@@ -34,6 +34,8 @@ HANDLE GetOSFHandle(int fd) { return (HANDLE)_get_osfhandle(fd); }
 handle_from_posix_fd_func const kDefFd2HandleFunc = &GetOSFHandle;
 Fd2HANDLE _curFd2HandleImpl = DefFd2Handle();
 
+const long _page_size = getpagesize();
+
 enum class ModusVivendi {
     NORMAL = 0x78723a15, // a whimsical constant value least likely to cause a false positive
     EMERGENCY = 0,
@@ -44,6 +46,32 @@ enum fd_access_inference_policy _write_policy = fd_access_inference_policy__prob
 
 bool _mmap_strict_policy = false;
 bool _mmap_apply_executable_image_sections = false;
+
+constexpr int kOfferPriorityNormal = VmOfferPriorityNormal; // 4
+constexpr int kOfferPriorityRange = VmOfferPriorityNormal - VmOfferPriorityVeryLow; // 4-1
+OFFER_PRIORITY _offer_prio = VmOfferPriorityLow;
+
+uintptr_t RoundDown(void* &addr, size_t &length) {
+    uintptr_t base_addr = (uintptr_t) addr;
+    uintptr_t remainder = base_addr % _page_size;
+    base_addr -= remainder;
+    length += remainder;
+    addr = (void*) base_addr;
+    return remainder;
+}
+
+int RoundDownFailFast(void* &addr, size_t &length) {
+    return (RoundDown(addr, length) && _mmap_strict_policy)
+        ? (errno = EINVAL, -1) : 0;
+}
+
+int RoundUpFailFast(size_t &length) {
+    const auto oldlen = length;
+    length += _page_size - 1;
+    length -= length % _page_size;
+    return (_mmap_strict_policy && (oldlen != length))
+        ? (errno = EINVAL, -1) : 0;
+}
 
 } // anonymouys / nonreusable
 
@@ -103,6 +131,12 @@ void set_mmap_apply_executable_image_sections(int parse_coff) {
     _mmap_apply_executable_image_sections = parse_coff;
 }
 
+void set_madvise_offer_resoluteness(int res) {
+    if(res < 0) res = 0;
+    if(res > kOfferPriorityRange) res = kOfferPriorityRange;
+    _offer_prio = (OFFER_PRIORITY)(kOfferPriorityNormal - res);
+}
+
 ////////////////////////
 // Exclude from dumps //
 ////////////////////////
@@ -111,6 +145,11 @@ extern HRESULT WerRegisterExcludedMemoryBlock(const void *address, DWORD size)
     __attribute((weak));
 
 extern HRESULT WerRegisterMemoryBlock(const void *address, DWORD size);
+
+static bool WerExcludeMemoryBlock(const void *address, DWORD size) {
+    return &WerRegisterExcludedMemoryBlock 
+        && (WerRegisterExcludedMemoryBlock(address, size) == S_OK);
+}
 
 /////////////////////
 // POSIX interface //
@@ -136,7 +175,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
     const bool large_pages = flags & MAP_HUGETLB;
     const long page_size = large_pages \
          ? vm_request |= MEM_LARGE_PAGES, gethugepagesize() \
-         : getpagesize();
+         : _page_size;
     // NOTE: https://learn.microsoft.com/en-us/windows/win32/memory/large-page-support
     //       (particularly, see the part about AdjustTokenPrivileges)
 
@@ -234,9 +273,8 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
 
     // now adorn the newlywed memory in special modes independent of file mapping
 
-    if((flags & MAP_CONCEAL) && &WerRegisterExcludedMemoryBlock) {
-        WerRegisterExcludedMemoryBlock(addr, length); // also possible in madvise
-        // reverting the exclusion: Wer­Register­Memory­Block (MOREINFO test!)
+    if(flags & MAP_CONCEAL) {
+        WerExcludeMemoryBlock(addr, length);
     }
 
     return addr;
@@ -274,20 +312,7 @@ int msync(void* addr, size_t length, int flags) {
         }
     }
 
-    long page_size = getpagesize();
-    uintptr_t base_addr = (uintptr_t) addr;
-    uintptr_t remainder = base_addr % page_size;
-    if(remainder) {
-        if(_mmap_strict_policy) {
-            return errno = EINVAL, -1; // enforce page boundary
-        } else {
-            base_addr -= remainder;
-            length += remainder;
-            addr = (void*) base_addr;
-        }
-    }
-    // length += page_size - 1;
-    // length -= length % page_size;
+    if(RoundDownFailFast(addr, length)) return -1;
 
     _MEMMAP_LOG("FlushViewOfFile(%p, %lx)", addr, length);
     return FlushViewOfFile(addr, length) ? 0 : (errno = ENOMEM, -1);
@@ -299,13 +324,24 @@ int msync(void* addr, size_t length, int flags) {
  * access to the offered pages until they are reclaimed."
  * Therefore {Offer|Reclaim|Discard}VirtualMemory aren't strict equivalents of `madvise` (^^^).
  * Also, `MADV_FREE` has the "last-moment writes" semantic that isn't fully supported by Offer.
+ * HOWEVER: using VirtualAlloc requires knowing the protection flags. We can run a VirtualQuery
+ * but it would be fragile and non-atomic. Therefore, {Offer|Reclaim}VirtualMemory().
  */
-int madvise(void* addr, size_t len, int advice) {
-    switch(advice){}
-    // madvise: normally, VirtualAlloc: MADV_DONTNEED->MEM_RESET, MADV_WILLNEED->MEM_RESET_UNDO
-    // also: WerRegisterExcludedMemoryBlock and WerRegisterMemoryBlock
+int madvise(void* addr, size_t length, int advice) {
+    if(RoundDownFailFast(addr, length) || RoundUpFailFast(length)) return -1;
 
-    return -1;
+    switch(advice){
+        case MADV_DONTNEED:
+            return OfferVirtualMemory(addr, length, _offer_prio) == ERROR_SUCCESS ? 0 : (errno = ENOMEM, -1);
+        case MADV_WILLNEED:
+            return ReclaimVirtualMemory(addr, length) == ERROR_SUCCESS ? 0 : (errno = ENOMEM, -1);
+        case MADV_DONTDUMP:
+            return WerExcludeMemoryBlock(addr, length) ? 0 : (errno = EAGAIN, -1);
+        case MADV_DODUMP:
+            return (WerRegisterMemoryBlock(addr, length) == S_OK) ? 0: (errno = EAGAIN, -1);
+        default:
+            return _mmap_strict_policy ? (errno = EINVAL, -1) : 0;
+    }
 }
 
 int mlock (const void* addr, size_t length) {
