@@ -326,6 +326,7 @@ int msync(void* addr, size_t length, int flags) {
  * Also, `MADV_FREE` has the "last-moment writes" semantic that isn't fully supported by Offer.
  * HOWEVER: using VirtualAlloc requires knowing the protection flags. We can run a VirtualQuery
  * but it would be fragile and non-atomic. Therefore, {Offer|Reclaim}VirtualMemory().
+ * TODO: test on WinRT and link weakly if necessary. (We have so far tested on 10.)
  */
 int madvise(void* addr, size_t length, int advice) {
     if(RoundDownFailFast(addr, length) || RoundUpFailFast(length)) return -1;
