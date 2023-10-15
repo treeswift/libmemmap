@@ -39,6 +39,7 @@ namespace shm {
  */
 bool SetShmDir(const std::string& path);
 std::string DefShmDir();
+std::string TmpShmDir();
 std::string ShmDir();
 
 } // namespace shm
@@ -106,6 +107,8 @@ void set_mincore_strict_policy(int strict);
  *  Possible `errno` values include ENOENT, ENOTDIR and EACCES.
  */
 int set_shared_memory_dir(const char* path);
+const char* def_shared_memory_dir();
+const char* tmp_shared_memory_dir();
 const char* get_shared_memory_dir();
 
 /**

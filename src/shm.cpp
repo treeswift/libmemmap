@@ -9,7 +9,7 @@ using namespace mem;
 using namespace shm;
 
 
-std::string _shm_dir;
+std::string _shm_dir; /* empty means "create named objects backed by the page file" */
 }
 
 namespace mem {
@@ -20,6 +20,10 @@ bool SetShmDir(const std::string& path) {
 }
 
 std::string DefShmDir() {
+    return {};
+}
+
+std::string TmpShmDir() {
     //
 }
 
@@ -38,6 +42,8 @@ extern "C" {
  *  Possible `errno` values include ENOENT, ENOTDIR and EACCES.
  */
 int set_shared_memory_dir(const char* path);
+const char* def_shared_memory_dir();
+const char* tmp_shared_memory_dir();
 const char* get_shared_memory_dir();
 
 int shm_open(const char* filename, int open_flag, mode_t mode) {
