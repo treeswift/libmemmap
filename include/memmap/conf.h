@@ -33,6 +33,9 @@ namespace shm {
  * or use the default value (%TEMP%, or %TMP% if %TEMP% not defined).
  * `SetShmDir` returns `true` on success and `false` on failure.
  * Forward slashes are converted to backslashes.
+ * 
+ * MOREINFO remove this configuration section and use the page file instead?
+ *          Why do Windows-ported shm implementations use temp folders then?
  */
 bool SetShmDir(const std::string& path);
 std::string DefShmDir();
@@ -75,6 +78,19 @@ void set_write_bit_inference_policy(enum fd_access_inference_policy policy);
 /**
  * Various boolean flags determining strict vs. relaxed implementation policies.
  */
+
+/**
+ * strict => require that fd==-1 if flags contains MAP_ANONYMOUS
+ * !strict => ignore fd if an anonymous (i.e. private) mapping is requested
+ */
+void set_mmap_strict_policy(int strict);
+
+/**
+ * parse_coff => ignore `prot` flags and map the file the way a dynamic linker would
+ *              (but without actually linking it dynamically into the symbol space);
+ * !parse_coff => apply `prot` flags verbatim (default POSIX API behavior).
+ */
+void set_mmap_apply_executable_image_sections(int parse_coff);
 
 /**
  * strict => ENOMEM if `mincore` range exceeds memory available to applications;

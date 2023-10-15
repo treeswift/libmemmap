@@ -37,6 +37,12 @@ long memmap_sysconf(int name);
 /* Ditto. */
 int getpagesize();
 
+/* Nonstandard but convenient. */
+int gethugepagesize();
+
+/* Ditto. */
+int get_allocation_granularity();
+
 /**
  * We could introduce constants representing allocation granilarity etc., but if
  * the caller knows what they mean, it can as well call GetSystemInfo() directly.

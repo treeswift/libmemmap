@@ -24,10 +24,12 @@ typedef int32_t off_t
 #define PROT_READ   0x1
 #define PROT_WRITE  0x2
 #define PROT_EXEC   0x4
+#define PROT_MASK   0x7
 
 #define PROT_DATA (PROT_READ | PROT_WRITE)
 #define PROT_CODE (PROT_READ | PROT_EXEC)
 #define PROT_JITC (PROT_CODE | PROT_WRITE)
+/* PROT_JITC is equivalent to PROT_MASK */
 /* PROT_WRITE | PROT_EXEC is impractical */
 
 #define MAP_SHARED  0x1 /* "sync"able to the medium; PAGE_* mode depends on flags */
@@ -52,8 +54,9 @@ typedef int32_t off_t
 /* Linux extensions */
 #define MAP_POPULATE  0x8000 /* "commit and touch" */
 #define MAP_NONBLOCK 0x10000 /* ignored */
-#define MAP_HUGETLB  0x40000 /* translates to MEM_LARGE_PAGES; currently unsupported */
-#define MAP_SYNC     0x80000 /* persistent write guarantee */
+#define MAP_HUGETLB  0x40000 /* translates to MEM_LARGE_PAGES */
+#define MAP_SYNC     0x80000 /* persistent write guarantee; unsupported */
+#define MAP_UNINITIALIZED 0x4000000 /* don't zero out contents; ignored */
 
 #define MAP_FLAGMASK ~0 /* all flag bits are valid, but some are reserved for future use */
 
@@ -61,6 +64,9 @@ typedef int32_t off_t
 
 #define MADV_DONTNEED 0x1
 #define MADV_WILLNEED 0x2
+
+#define MADV_DONTDUMP 0x10
+#define MADV_DODUMP   0x11
 
 /* __BEGIN_DECLS */
 #ifdef __cplusplus

@@ -25,6 +25,16 @@ int getpagesize() {
     return si.dwPageSize;
 }
 
+int gethugepagesize() {
+    return (int) GetLargePageMinimum();
+}
+
+int get_allocation_granularity() {
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return si.dwAllocationGranularity;
+}
+
 long memmap_sysconf(int name) {
     if((name == _SC_PAGESIZE) || (name == _SC_PAGE_SIZE)) {
         return getpagesize();

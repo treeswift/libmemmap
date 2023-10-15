@@ -1,15 +1,30 @@
 #include "sys/mman.h"
 #include "memmap/conf.h"
+#include "memmap/proc.h"
 
 // implementation
 #include <windows.h>
+// #include <werapi.h> // breaks when included, so we `extern` the only symbol we need
 #include <errno.h>
-#include <io.h>
+#include <io.h> // _get_osfhandle
+#include <assert.h>
 
 namespace
 {
 using namespace mem;
 using namespace map;
+
+constexpr DWORD kProtectionTranslationLUT[] = {
+    // bit order (top down): xwr
+    PAGE_NOACCESS,
+    PAGE_READONLY,
+    PAGE_READWRITE, // write access implies read access
+    PAGE_READWRITE, // promotes to PAGE_WRITECOPY for COW
+    PAGE_EXECUTE,
+    PAGE_EXECUTE_READ,
+    PAGE_EXECUTE_READWRITE, // ditto
+    PAGE_EXECUTE_READWRITE, // ditto, to PAGE_EXECUTE_WRITECOPY
+};
 
 // Global data. No thread safety here at all. AT ALL. Period.
 // All custom logic here must be confined to program startup.
@@ -25,10 +40,12 @@ enum class ModusVivendi {
 enum fd_access_inference_policy _exec_policy = fd_access_inference_policy__probe;
 enum fd_access_inference_policy _write_policy = fd_access_inference_policy__probe;
 
+bool _mmap_strict_policy = false;
+bool _mmap_apply_executable_image_sections = false;
+
 } // anonymouys / nonreusable
 
 // m[un]map(ANON): VirtualAlloc, VirtualFree
-// m[un]map(file): MapViewOfFile(map), UnmapViewOfFile(view)
 
 namespace mem {
 namespace map {
@@ -78,27 +95,144 @@ void set_write_bit_inference_policy(enum fd_access_inference_policy policy) {
     _write_policy = policy;
 }
 
+void set_mmap_strict_policy(int strict) {
+    _mmap_strict_policy = strict;
+}
+
+void set_mmap_apply_executable_image_sections(int parse_coff) {
+    _mmap_apply_executable_image_sections = parse_coff;
+}
+
+////////////////////////
+// Exclude from dumps //
+////////////////////////
+
+extern HRESULT WerRegisterExcludedMemoryBlock(const void *address, DWORD size)
+    __attribute((weak));
+
 /////////////////////
 // POSIX interface //
 /////////////////////
 
 void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
-    // there are two crucially different cases: file view and anonymous memory
-    // HANDLE(file)->HANDLE(map): map=CreateFileMapping(file)
-    // (fd == 0): VirtualAlloc
-    return nullptr;
+    // *** IMPLEMENTATION NOTES (code generation) ***
+    // MSDN: "To execute dynamically generated code, use VirtualAlloc to allocate
+    //      memory and the VirtualProtect function to grant PAGE_EXECUTE access."
+    // ibid: "call to FlushInstructionCache once the code has been set in place."
+    // [GCC: void __builtin___clear_cache(char* begin, char* end)]
+
+    if(_mmap_strict_policy && (prot & ~PROT_MASK)) {
+        return errno = EINVAL, MAP_FAILED; // unknown protection flags
+    } else {
+        prot &= PROT_MASK;
+    }
+    DWORD protection = kProtectionTranslationLUT[prot];
+    DWORD vm_request = MEM_RESERVE | MEM_COMMIT;
+    const bool large_pages = flags & MAP_HUGETLB;
+    const long page_size = large_pages \
+         ? vm_request |= MEM_LARGE_PAGES, gethugepagesize() \
+         : getpagesize();
+    // NOTE: https://learn.microsoft.com/en-us/windows/win32/memory/large-page-support
+    //       (particularly, see the part about AdjustTokenPrivileges)
+
+    if((off | (uintptr_t)addr) % page_size) {
+        return errno = EINVAL, MAP_FAILED; // enforce page boundary
+    }
+    // length will be rounded up later -- there is a file view padding to incorporate
+
+    const bool is_file_backed = !(flags & MAP_ANONYMOUS) || (fd < 0);
+    if(is_file_backed) {
+        if(!(flags & MAP_SHARED) == !(flags & MAP_PRIVATE)) {
+            return errno = EINVAL, MAP_FAILED;
+        }
+        const bool copy_on_write = (flags & MAP_PRIVATE) && (prot & PROT_WRITE);
+        if(copy_on_write) protection <<= 1; // *_READWRITE becomes *_WRITECOPY
+
+        // ... handtracking here (unless emergency mode is on)
+
+        HANDLE hfile = _curFd2HandleImpl(fd);
+        // The handle CAN be INVALID_HANDLE_VALUE. In this case, Windows creates
+        // a mapping backed by the system page file. However, this behavior is
+        // not expected in POSIX API and we simply report an error and quit.
+        if(hfile == INVALID_HANDLE_VALUE) {
+            return errno = EBADF, MAP_FAILED;
+        }
+        SECURITY_ATTRIBUTES sa; // TODO populate
+        DWORD file_prot = protection;
+        // if(large_pages) fileprot |= SEC_LARGE_PAGES; // only for the swap file
+        if((prot & PROT_EXEC) && _mmap_apply_executable_image_sections) {
+            // SEC_IMAGE is not a prerequisite for mapping an executable file.
+            // Instead it tells the OS that memory protection values must follow
+            // the binary ("objdump -h") layout of the file being mapped.
+            // There is no equivalent flag in POSIX API; we enable it by a policy.
+            file_prot |= SEC_IMAGE;
+        }
+        HANDLE h_map = CreateFileMappingW(hfile, &sa, file_prot, 0, 0, nullptr /*name*/);
+        // the name won't be null for shm_open
+
+        if(h_map == INVALID_HANDLE_VALUE) {
+            /* FIXME parse GetLastError() and translate to relevant BSD/Linux errno! */
+            return errno = EACCES, MAP_FAILED;
+        }
+
+        const bool existing_mapping = GetLastError() == ERROR_ALREADY_EXISTS; // atomic
+
+        off_t allocgran = get_allocation_granularity();
+        off_t fvpadding = (off % allocgran);
+        off_t fv_offset = off - fvpadding;
+        off_t fv_length = length + fvpadding;
+        DWORD fv_access = FILE_MAP_ALL_ACCESS | FILE_MAP_EXECUTE; /* TODO !!! apply inference policies!!! */
+        addr = MapViewOfFile(h_map, fv_access, 0, fv_offset, fv_length);
+        if(!addr) {
+            return errno = ENOMEM, MAP_FAILED; /* FIXME GetLastError() etc. */
+        }
+
+        addr = (void*)((uintptr_t)addr + fvpadding);
+
+        // TODO further decorate for synchronization, execution etc. RESPECTING PAGE BOUNDARIES
+        // TODO add handtracking for further `munmap` and `madvise` purposes
+
+    } else {
+        if(_mmap_strict_policy && fd != -1) {
+            return errno = EINVAL, MAP_FAILED;
+        }
+
+        // length is not checked, but silently rounded up:
+        length += page_size - 1; length -= length % page_size;
+
+        addr = VirtualAlloc(addr, length, vm_request, protection);
+        if(!addr) {
+            errno = (GetLastError() == ERROR_INVALID_ADDRESS) ? EINVAL : ENOMEM;
+            return MAP_FAILED;
+        }
+    }
+
+    assert(addr); // we quit earlier in all error cases
+
+    // now adorn the newlywed memory in special modes independent of file mapping
+
+    if((flags & MAP_CONCEAL) && &WerRegisterExcludedMemoryBlock) {
+        WerRegisterExcludedMemoryBlock(addr, length); // also possible in madvise
+        // reverting the exclusion: Wer­Register­Memory­Block (MOREINFO test!)
+    }
+
+    return addr;
 }
 
 int munmap(void* addr, size_t length) {
-    // *** IMPLEMENTATION NOTES ***
+    // *** IMPLEMENTATION NOTES (deallocation) ***
     // We want `munmap` to be a general purpose semantic equivalent of its POSIX counterpart.
-    // Therefore we can only rely on a runtime examination of the page state.
+    // This means that we want it to unmap not only pages that have been allocated with `mmap`
+    /// (which we know about) but also pages that haven't (which we don't).
+    // Therefore we can, generally, only rely on a runtime examination of the page state.
 
     // NOTE: it is not possible to poke a hole in a FileView.
     // When an entire file view is closed, we UnmapViewOfFile(view);
     // when all mappings of a file are closed, we CloseHandle(map).
+    // MSDN: "These functions can be called in any order."
     // Side effects of a partial munmap() on a file view are replicated w/`msync`
     // We stop tracking status of "logically unmapped" regions in emergency mode.
+
     // For anonymous regions, we do VirtualFree().
 
     return -1;
