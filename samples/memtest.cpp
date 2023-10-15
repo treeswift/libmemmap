@@ -1,11 +1,14 @@
 #include <stdio.h>
+#include <fcntl.h>
 #include "sys/mman.h"
 #include "memmap/conf.h"
 #include "memmap/proc.h"
 #include <assert.h>
 #include <atomic>
 
-long page_size;
+constexpr const char* kTestFile = "test-memmap.dat";
+constexpr std::size_t kBSz = 1024;
+constexpr std::size_t kKbs = 7;
 
 void write_and_read(void* addr) {
     ((volatile char*) addr)[0] = 0x5;
@@ -14,6 +17,19 @@ void write_and_read(void* addr) {
     ((volatile char*) addr)[3] = 0x5;
     assert(*(volatile uint32_t*)addr == 0x5050505);
 }
+
+int CreateDataFile() {
+    unsigned char bytebuf[kBSz];
+    int fd = open(kTestFile, O_CREAT | O_RDWR | O_BINARY);
+    memset(bytebuf, '\7', kBSz);
+    for(std::size_t i = 0; i < kKbs; ++i) {
+        assert(write(fd, bytebuf, kBSz) == kBSz); // enough space
+    }
+    _commit(fd); // equivalent of flush or fsync
+    return fd;
+}
+
+long page_size;
 
 void test_mincore() {
     // set_mincore_strict_policy(false); // default anyway
@@ -51,16 +67,24 @@ void test_mincore() {
 void test_mmap() {
     errno = 0;
     void* my_page = mmap(nullptr, page_size, PROT_DATA, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    printf("mmap(anon) errno=%d\n", errno);
+    printf("mmap(anon) p=%p errno=%d\n", my_page, errno);
     assert(my_page != MAP_FAILED);
     unsigned char in_core[2];
     assert(!mincore(my_page, page_size, in_core));
     assert(in_core[0]);
     write_and_read(my_page);
 
+    int fd = CreateDataFile();
+    void* my_file = mmap(nullptr, kBSz * 5, PROT_DATA, MAP_SHARED, fd, kBSz); // skip 1kb and map 5kb
+    printf("mmap(data) p=%p errno=%d\n", my_file, errno);
+    assert(my_page != MAP_FAILED);
+    assert(*(volatile uint32_t*)my_file == 0x7070707);
+    write_and_read(my_file);
+
+    printf("mmap() test completed.\n");
 }
 
-int main(int argc, char **) {
+int main(int, char **) {
     page_size = getpagesize();
     assert(page_size);
 

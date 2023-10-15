@@ -2,6 +2,8 @@
 #include "memmap/conf.h"
 #include "memmap/proc.h"
 
+#include "dbg.h" // tracing
+
 // implementation
 #include <windows.h>
 // #include <werapi.h> // breaks when included, so we `extern` the only symbol we need
@@ -44,8 +46,6 @@ bool _mmap_strict_policy = false;
 bool _mmap_apply_executable_image_sections = false;
 
 } // anonymouys / nonreusable
-
-// m[un]map(ANON): VirtualAlloc, VirtualFree
 
 namespace mem {
 namespace map {
@@ -114,6 +114,8 @@ extern HRESULT WerRegisterExcludedMemoryBlock(const void *address, DWORD size)
 // POSIX interface //
 /////////////////////
 
+// TODO(dbg): introduce some variadic macro instead of 
+
 void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
     // *** IMPLEMENTATION NOTES (code generation) ***
     // MSDN: "To execute dynamically generated code, use VirtualAlloc to allocate
@@ -121,6 +123,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
     // ibid: "call to FlushInstructionCache once the code has been set in place."
     // [GCC: void __builtin___clear_cache(char* begin, char* end)]
 
+    _MEMMAP_LOG("Protection: %x\n", prot);
     if(_mmap_strict_policy && (prot & ~PROT_MASK)) {
         return errno = EINVAL, MAP_FAILED; // unknown protection flags
     } else {
@@ -135,13 +138,14 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
     // NOTE: https://learn.microsoft.com/en-us/windows/win32/memory/large-page-support
     //       (particularly, see the part about AdjustTokenPrivileges)
 
-    if((off | (uintptr_t)addr) % page_size) {
+    if(((off * _mmap_strict_policy) | (uintptr_t)addr) % page_size) {
         return errno = EINVAL, MAP_FAILED; // enforce page boundary
     }
     // length will be rounded up later -- there is a file view padding to incorporate
 
     const bool is_file_backed = !(flags & MAP_ANONYMOUS);
     if(is_file_backed) {
+        _MEMMAP_LOG("Flags: %x\n", flags);
         if(!(flags & MAP_SHARED) == !(flags & MAP_PRIVATE)) {
             return errno = EINVAL, MAP_FAILED;
         }
@@ -155,9 +159,12 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
         // a mapping backed by the system page file. However, this behavior is
         // not expected in POSIX API and we simply report an error and quit.
         if(hfile == INVALID_HANDLE_VALUE) {
+            _MEMMAP_LOG("invalid hfile GetLastError()=%lx\n", GetLastError());
             return errno = EBADF, MAP_FAILED;
         }
-        SECURITY_ATTRIBUTES sa; // TODO populate
+        SECURITY_ATTRIBUTES sa;
+        sa.lpSecurityDescriptor = nullptr;
+        sa.bInheritHandle = true; // TODO review handle inheritance throughout the API
         DWORD file_prot = protection;
         // if(large_pages) fileprot |= SEC_LARGE_PAGES; // only for the swap file
         if((prot & PROT_EXEC) && _mmap_apply_executable_image_sections) {
@@ -172,6 +179,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
 
         if(h_map == INVALID_HANDLE_VALUE) {
             /* FIXME parse GetLastError() and translate to relevant BSD/Linux errno! */
+            _MEMMAP_LOG("invalid h_map GetLastError()=%lx\n", GetLastError());
             return errno = EACCES, MAP_FAILED;
         }
 
@@ -181,9 +189,11 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
         off_t fvpadding = (off % allocgran);
         off_t fv_offset = off - fvpadding;
         off_t fv_length = length + fvpadding;
-        DWORD fv_access = FILE_MAP_ALL_ACCESS | FILE_MAP_EXECUTE; /* TODO !!! apply inference policies!!! */
+        // in MinGW FILE_MAP_ALL_ACCESS includes FILE_MAP_EXECUTE
+        DWORD fv_access = FILE_MAP_READ | FILE_MAP_WRITE; /*  | FILE_MAP_EXECUTE; TODO !!! apply inference policies!!! */
         addr = MapViewOfFile(h_map, fv_access, 0, fv_offset, fv_length);
         if(!addr) {
+            _MEMMAP_LOG("invalid mview GetLastError()=%lx\n", GetLastError());
             return errno = ENOMEM, MAP_FAILED; /* FIXME GetLastError() etc. */
         }
 
@@ -200,8 +210,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
         // length is not checked, but silently rounded up:
         length += page_size - 1; length -= length % page_size;
 
-        //printf("VirtualAlloc(%p, %lx, %lx, %lx)\n", addr, length, vm_request, protection);
-        //fflush(stdout);
+        _MEMMAP_LOG("VirtualAlloc(%p, %lx, %lx, %lx)\n", addr, length, vm_request, protection);
         addr = VirtualAlloc(addr, length, vm_request, protection);
         if(!addr) {
             errno = (GetLastError() == ERROR_INVALID_ADDRESS) ? EINVAL : ENOMEM;
