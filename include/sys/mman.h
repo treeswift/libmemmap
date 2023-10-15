@@ -38,12 +38,12 @@ typedef int32_t off_t
 
 #define MAP_FIXED   0x10 /* specific address request, freeing overlapping mappings */
 #define __MAP_NOREPLACE 0x800 /* specific address request if available, or EEXIST */
-#define MAP_FIXED_NOREPLACE __MAP_NOREPLACE
+#define MAP_FIXED_NOREPLACE __MAP_NOREPLACE /* TODO (define logic)*/
 
 #define MAP_ANON    0x1000 /* no backing file */
 #define MAP_ANONYMOUS MAP_ANON
 
-#define __MAP_NOFAULT 0x2000 /* allocate from live RAM */
+#define __MAP_NOFAULT 0x2000 /* allocate from live RAM; unsupported and unlikely */
 
 #define MAP_STACK   0x4000 /* stack segment. per documentation, may be (and is) ignored. */
 #define MAP_GROWSDOWN MAP_STACK
@@ -52,7 +52,7 @@ typedef int32_t off_t
 #define MAP_CONCEAL 0x8000 /* omit from core dumps (Linux: MADV_DONTDUMP) -- ignored atm */
 
 /* Linux extensions */
-#define MAP_POPULATE  0x8000 /* "commit and touch" */
+#define MAP_POPULATE  0x8000 /* TODO "commit and touch" */
 #define MAP_NONBLOCK 0x10000 /* ignored */
 #define MAP_HUGETLB  0x40000 /* translates to MEM_LARGE_PAGES */
 #define MAP_SYNC     0x80000 /* persistent write guarantee; unsupported */

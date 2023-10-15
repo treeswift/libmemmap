@@ -140,7 +140,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
     }
     // length will be rounded up later -- there is a file view padding to incorporate
 
-    const bool is_file_backed = !(flags & MAP_ANONYMOUS) || (fd < 0);
+    const bool is_file_backed = !(flags & MAP_ANONYMOUS);
     if(is_file_backed) {
         if(!(flags & MAP_SHARED) == !(flags & MAP_PRIVATE)) {
             return errno = EINVAL, MAP_FAILED;
@@ -200,6 +200,8 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
         // length is not checked, but silently rounded up:
         length += page_size - 1; length -= length % page_size;
 
+        //printf("VirtualAlloc(%p, %lx, %lx, %lx)\n", addr, length, vm_request, protection);
+        //fflush(stdout);
         addr = VirtualAlloc(addr, length, vm_request, protection);
         if(!addr) {
             errno = (GetLastError() == ERROR_INVALID_ADDRESS) ? EINVAL : ENOMEM;
