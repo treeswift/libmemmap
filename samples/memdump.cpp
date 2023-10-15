@@ -50,12 +50,17 @@ std::string VisualizeProtection(DWORD prot) {
 
 int main(int, char **) {
 #ifdef PAGE_SIZE
-    printf("Page size (static):\t0x%x (%ld) bytes\n", PAGE_SIZE, PAGE_SIZE);
+    printf("Page size (static):\t%10ld bytes (0x%lx)\n", PAGE_SIZE, PAGE_SIZE);
 #endif
 
     long page_size = memmap_sysconf(_SC_PAGESIZE);
-    printf("Page size (dynamic):\t0x%lx (%ld) bytes\n", page_size, page_size);
+    printf("Page size (dynamic):\t%10ld bytes (0x%lx)\n", page_size, page_size);
+    long huge_page = gethugepagesize();
+    printf("Large ('huge') page:\t%10ld bytes (0x%lx)\n", huge_page, huge_page);
+    long allocgran = get_allocation_granularity();
+    printf("Alloc-n granularity:\t%10ld bytes (0x%lx)\n", allocgran, allocgran);
 
+    printf("\n baseaddr-uptoaddr   length req (bngrwx) -> now (bngrwx) type res\n");
     SYSTEM_INFO si;
     GetSystemInfo(&si);
     // there is also dwAllocationGranularity (may be greater than dwPageSize)
