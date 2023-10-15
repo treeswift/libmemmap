@@ -110,6 +110,8 @@ void set_mmap_apply_executable_image_sections(int parse_coff) {
 extern HRESULT WerRegisterExcludedMemoryBlock(const void *address, DWORD size)
     __attribute((weak));
 
+extern HRESULT WerRegisterMemoryBlock(const void *address, DWORD size);
+
 /////////////////////
 // POSIX interface //
 /////////////////////
@@ -255,8 +257,30 @@ int mprotect(void* addr, size_t length, int flags) {
 }
 
 int msync(void* addr, size_t length, int flags) {
-    // msync: FlushViewOfFile
-    return -1;
+
+    if(_mmap_strict_policy) {
+        if(!(flags & MS_SYNC) == !(flags & MS_ASYNC)) {
+            return errno = EINVAL, -1;
+        }
+    }
+
+    long page_size = getpagesize();
+    uintptr_t base_addr = (uintptr_t) addr;
+    uintptr_t remainder = base_addr % page_size;
+    if(remainder) {
+        if(_mmap_strict_policy) {
+            return errno = EINVAL, -1; // enforce page boundary
+        } else {
+            base_addr -= remainder;
+            length += remainder;
+            addr = (void*) base_addr;
+        }
+    }
+    // length += page_size - 1;
+    // length -= length % page_size;
+
+    _MEMMAP_LOG("FlushViewOfFile(%p, %lx)\n", addr, length);
+    return FlushViewOfFile(addr, length) ? 0 : (errno = ENOMEM, -1);
 }
 
 /**
@@ -267,7 +291,9 @@ int msync(void* addr, size_t length, int flags) {
  * Also, `MADV_FREE` has the "last-moment writes" semantic that isn't fully supported by Offer.
  */
 int madvise(void* addr, size_t len, int advice) {
+    switch(advice){}
     // madvise: normally, VirtualAlloc: MADV_DONTNEED->MEM_RESET, MADV_WILLNEED->MEM_RESET_UNDO
+    // also: WerRegisterExcludedMemoryBlock and WerRegisterMemoryBlock
 
     return -1;
 }

@@ -62,6 +62,14 @@ typedef int32_t off_t
 
 #define MAP_FAILED	((void*) -1)
 
+/**
+ * `msync` flags. All of them are ignored, but strict mode makes sure that
+ *  exactly one of MS_SYNC and MS_ASYNC is passed.
+ */
+#define MS_SYNC       0x1
+#define MS_INVALIDATE 0x2
+#define MS_ASYNC      0x4
+
 #define MADV_DONTNEED 0x1
 #define MADV_WILLNEED 0x2
 

@@ -10,12 +10,17 @@ constexpr const char* kTestFile = "test-memmap.dat";
 constexpr std::size_t kBSz = 1024;
 constexpr std::size_t kKbs = 7;
 
+constexpr std::size_t kFileSize = kBSz * kKbs;
+constexpr std::size_t kFileInto = kBSz;
+constexpr std::size_t kFileSpan = kBSz * 5;
+constexpr std::size_t kSyncSpan = kBSz;
+
 void write_and_read(void* addr) {
-    ((volatile char*) addr)[0] = 0x5;
-    ((volatile char*) addr)[1] = 0x5;
-    ((volatile char*) addr)[2] = 0x5;
-    ((volatile char*) addr)[3] = 0x5;
-    assert(*(volatile uint32_t*)addr == 0x5050505);
+    ((volatile char*) addr)[0] = 0x23;
+    ((volatile char*) addr)[1] = 0x23;
+    ((volatile char*) addr)[2] = 0x23;
+    ((volatile char*) addr)[3] = 0x23;
+    assert(*(volatile uint32_t*)addr == 0x23232323);
 }
 
 int CreateDataFile() {
@@ -75,13 +80,25 @@ void test_mmap() {
     write_and_read(my_page);
 
     int fd = CreateDataFile();
-    void* my_file = mmap(nullptr, kBSz * 5, PROT_DATA, MAP_SHARED, fd, kBSz); // skip 1kb and map 5kb
+    void* my_file = mmap(nullptr, kFileSpan, PROT_DATA, MAP_SHARED, fd, kFileInto); // skip 1kb and map 5kb
     printf("mmap(data) p=%p errno=%d\n", my_file, errno);
     assert(my_page != MAP_FAILED);
     assert(*(volatile uint32_t*)my_file == 0x7070707);
     write_and_read(my_file);
+    assert(*(volatile uint32_t*)my_file == 0x23232323);
+    bool sync_ok = !msync(my_file, kSyncSpan, MS_SYNC);
+    printf("msync(data) p=%p errno=%d\n", my_file, errno);
+    fflush(stdout);
+    assert(sync_ok);
+    // _commit(fd); // FlushFileBuffers()
+    int readvalue;
+    lseek(fd, -4, SEEK_CUR);
+    assert(read(fd, &readvalue, 4) == 4 && (readvalue == 0x7070707));
+    lseek(fd, kFileInto, SEEK_SET);
+    assert(read(fd, &readvalue, 4) == 4 && (readvalue == 0x23232323));
+    close(fd);
 
-    printf("mmap() test completed.\n");
+    printf("mmap()/msync() test completed.\n");
 }
 
 int main(int, char **) {
