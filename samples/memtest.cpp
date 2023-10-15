@@ -8,19 +8,31 @@
 
 constexpr const char* kTestFile = "test-memmap.dat";
 constexpr std::size_t kBSz = 1024;
-constexpr std::size_t kKbs = 7;
+constexpr std::size_t kKbs = 140;
 
 constexpr std::size_t kFileSize = kBSz * kKbs;
 constexpr std::size_t kFileInto = kBSz;
 constexpr std::size_t kFileSpan = kBSz * 5;
 constexpr std::size_t kSyncSpan = kBSz;
 
+constexpr std::size_t kCowField = kBSz * 135;
+
+constexpr uint32_t kBackground = 0x07070707;
+constexpr uint32_t kForeground = 0x23232323;
+
 void write_and_read(void* addr) {
-    ((volatile char*) addr)[0] = 0x23;
-    ((volatile char*) addr)[1] = 0x23;
-    ((volatile char*) addr)[2] = 0x23;
-    ((volatile char*) addr)[3] = 0x23;
-    assert(*(volatile uint32_t*)addr == 0x23232323);
+    ((volatile char*) addr)[3] = '#';
+    ((volatile char*) addr)[2] = '#';
+    ((volatile char*) addr)[1] = '#';
+    ((volatile char*) addr)[0] = '#';
+    assert(*(volatile uint32_t*)addr == kForeground);
+}
+
+void pen_stroke(void* mapping) {
+    assert(mapping != MAP_FAILED);
+    assert(*(volatile uint32_t*)mapping == kBackground);
+    write_and_read(mapping);
+    assert(*(volatile uint32_t*)mapping == kForeground);
 }
 
 int CreateDataFile() {
@@ -32,6 +44,16 @@ int CreateDataFile() {
     }
     _commit(fd); // equivalent of flush or fsync
     return fd;
+}
+
+void ValidateFileData(int fd) {
+    int readvalue;
+    lseek(fd, -4, SEEK_CUR);
+    assert(read(fd, &readvalue, 4) == 4 && (readvalue == kBackground));
+    lseek(fd, kFileInto, SEEK_SET);
+    assert(read(fd, &readvalue, 4) == 4 && (readvalue == kForeground));
+    lseek(fd, kCowField, SEEK_SET);
+    assert(read(fd, &readvalue, 4) == 4 && (readvalue == kBackground));
 }
 
 long page_size;
@@ -82,21 +104,30 @@ void test_mmap() {
     int fd = CreateDataFile();
     void* my_file = mmap(nullptr, kFileSpan, PROT_DATA, MAP_SHARED, fd, kFileInto); // skip 1kb and map 5kb
     printf("mmap(data) p=%p errno=%d\n", my_file, errno);
-    assert(my_page != MAP_FAILED);
-    assert(*(volatile uint32_t*)my_file == 0x7070707);
-    write_and_read(my_file);
-    assert(*(volatile uint32_t*)my_file == 0x23232323);
-    bool sync_ok = !msync(my_file, kSyncSpan, MS_SYNC);
+    pen_stroke(my_file);
+    const bool sync_ok = !msync(my_file, kSyncSpan, MS_SYNC);
     printf("msync(data) p=%p errno=%d\n", my_file, errno);
     fflush(stdout);
     assert(sync_ok);
-    // _commit(fd); // FlushFileBuffers()
-    int readvalue;
-    lseek(fd, -4, SEEK_CUR);
-    assert(read(fd, &readvalue, 4) == 4 && (readvalue == 0x7070707));
-    lseek(fd, kFileInto, SEEK_SET);
-    assert(read(fd, &readvalue, 4) == 4 && (readvalue == 0x23232323));
+
+    // we need a new file handle because the file view created from the old one is now implicitly MAP_SHARED
+    int hc = open(kTestFile, O_CREAT | O_RDWR | O_BINARY);
+    void* holycow = mmap(nullptr, kFileSpan, PROT_DATA, MAP_PRIVATE, hc, kCowField);
+    printf("mmap(cows) p=%p errno=%d\n", my_file, errno);
+    pen_stroke(holycow);
+    const bool sync_hc = !msync(my_file, kSyncSpan, MS_SYNC);
+    printf("msync(cows) p=%p errno=%d\n", my_file, errno);
+    fflush(stdout);
+    printf(sync_hc ? "holy cow, `msync`ing a private view is a no-op\n"
+                       : "nope, `msync`ing a private view is not allowed\n");
+    _commit(hc); // FlushFileBuffers()
+
+    ValidateFileData(fd);
+    printf("Testing the other (cow) file...\n");
+    fflush(stdout);
+    ValidateFileData(hc);
     close(fd);
+    close(hc);
 
     printf("mmap()/msync() test completed.\n");
 }
@@ -110,6 +141,8 @@ int main(int, char **) {
 
     test_mincore();
     test_mmap();
+
+    unlink(kTestFile);
 
     return 0;
 }

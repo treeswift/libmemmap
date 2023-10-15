@@ -125,7 +125,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
     // ibid: "call to FlushInstructionCache once the code has been set in place."
     // [GCC: void __builtin___clear_cache(char* begin, char* end)]
 
-    _MEMMAP_LOG("Protection: %x\n", prot);
+    _MEMMAP_LOG("Protection: %x", prot);
     if(_mmap_strict_policy && (prot & ~PROT_MASK)) {
         return errno = EINVAL, MAP_FAILED; // unknown protection flags
     } else {
@@ -147,7 +147,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
 
     const bool is_file_backed = !(flags & MAP_ANONYMOUS);
     if(is_file_backed) {
-        _MEMMAP_LOG("Flags: %x\n", flags);
+        _MEMMAP_LOG("Flags: %x", flags);
         if(!(flags & MAP_SHARED) == !(flags & MAP_PRIVATE)) {
             return errno = EINVAL, MAP_FAILED;
         }
@@ -161,7 +161,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
         // a mapping backed by the system page file. However, this behavior is
         // not expected in POSIX API and we simply report an error and quit.
         if(hfile == INVALID_HANDLE_VALUE) {
-            _MEMMAP_LOG("invalid hfile GetLastError()=%lx\n", GetLastError());
+            _MEMMAP_LOG("invalid hfile GetLastError()=%lx", GetLastError());
             return errno = EBADF, MAP_FAILED;
         }
         SECURITY_ATTRIBUTES sa;
@@ -176,12 +176,14 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
             // There is no equivalent flag in POSIX API; we enable it by a policy.
             file_prot |= SEC_IMAGE;
         }
+        _MEMMAP_LOG("CreateFileMappingW(%p, %cinh, 0x%lx, whole file, no name)",
+                     hfile, sa.bInheritHandle?'+':'-', file_prot);
         HANDLE h_map = CreateFileMappingW(hfile, &sa, file_prot, 0, 0, nullptr /*name*/);
         // the name won't be null for shm_open
 
         if(h_map == INVALID_HANDLE_VALUE) {
             /* FIXME parse GetLastError() and translate to relevant BSD/Linux errno! */
-            _MEMMAP_LOG("invalid h_map GetLastError()=%lx\n", GetLastError());
+            _MEMMAP_LOG("invalid h_map GetLastError()=%lx", GetLastError());
             return errno = EACCES, MAP_FAILED;
         }
 
@@ -191,11 +193,19 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
         off_t fvpadding = (off % allocgran);
         off_t fv_offset = off - fvpadding;
         off_t fv_length = length + fvpadding;
-        // in MinGW FILE_MAP_ALL_ACCESS includes FILE_MAP_EXECUTE
-        DWORD fv_access = FILE_MAP_READ | FILE_MAP_WRITE; /*  | FILE_MAP_EXECUTE; TODO !!! apply inference policies!!! */
+
+        // NOTE: https://stackoverflow.com/questions/55018806/copy-on-write-file-mapping-on-windows
+        // also: in MinGW FILE_MAP_ALL_ACCESS includes FILE_MAP_EXECUTE, which is contrary to MSDN.
+        const bool share_changes = (flags & MAP_SHARED) && (prot & PROT_WRITE);
+        DWORD fv_access = copy_on_write ? FILE_MAP_COPY :
+                          share_changes ? FILE_MAP_WRITE|FILE_MAP_READ : FILE_MAP_READ;
+        if(prot & PROT_EXEC) {
+            fv_access |= FILE_MAP_EXECUTE;
+        }
+        _MEMMAP_LOG("MapViewOfFile(%p, %lx, 0:%lx, %lx)", h_map, fv_access, fv_offset, fv_length);
         addr = MapViewOfFile(h_map, fv_access, 0, fv_offset, fv_length);
         if(!addr) {
-            _MEMMAP_LOG("invalid mview GetLastError()=%lx\n", GetLastError());
+            _MEMMAP_LOG("invalid mview GetLastError()=%lx", GetLastError());
             return errno = ENOMEM, MAP_FAILED; /* FIXME GetLastError() etc. */
         }
 
@@ -212,7 +222,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
         // length is not checked, but silently rounded up:
         length += page_size - 1; length -= length % page_size;
 
-        _MEMMAP_LOG("VirtualAlloc(%p, %lx, %lx, %lx)\n", addr, length, vm_request, protection);
+        _MEMMAP_LOG("VirtualAlloc(%p, %lx, %lx, %lx)", addr, length, vm_request, protection);
         addr = VirtualAlloc(addr, length, vm_request, protection);
         if(!addr) {
             errno = (GetLastError() == ERROR_INVALID_ADDRESS) ? EINVAL : ENOMEM;
@@ -279,7 +289,7 @@ int msync(void* addr, size_t length, int flags) {
     // length += page_size - 1;
     // length -= length % page_size;
 
-    _MEMMAP_LOG("FlushViewOfFile(%p, %lx)\n", addr, length);
+    _MEMMAP_LOG("FlushViewOfFile(%p, %lx)", addr, length);
     return FlushViewOfFile(addr, length) ? 0 : (errno = ENOMEM, -1);
 }
 
