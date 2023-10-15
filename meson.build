@@ -3,6 +3,8 @@ project('libmemmap', 'cpp',
     default_options : ['warning_level=3'],
   )
 
+add_global_arguments('-D_WIN32_WINNT=0x0603', language: 'cpp')
+
 memmap = shared_library('memmap',
     files(
       'src/mem.cpp',
