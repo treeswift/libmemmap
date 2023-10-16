@@ -1,12 +1,13 @@
 #include "sys/mman.h"
 #include "memmap/proc.h"
+#include "memmap/iter.h"
 
 #include <windows.h>
 #include <psapi.h> /* GetMappedFileName */
 
 #include <string>
+#include <functional>
 #include <stdio.h>
-#include <assert.h>
 
 // VirtualQueryEx(HANDLE, ...) -> memory info of another process
 
@@ -61,19 +62,11 @@ int main(int, char **) {
     long allocgran = get_allocation_granularity();
     printf("Alloc-n granularity:\t%10ld bytes (0x%lx)\n", allocgran, allocgran);
 
-    printf("\n baseaddr-uptoaddr   length req (bngrwx) -> now (bngrwx) type res\n");
-    SYSTEM_INFO si;
-    GetSystemInfo(&si);
-    // there is also dwAllocationGranularity (may be greater than dwPageSize)
+    printf("\n baseaddr-uptoaddr   length req (bngrwx) -> now (bngrwx) type res name\n");
+    char map_name[MAX_PATH + 1];
+    constexpr bool kTrimPath = true; // change to false to show full WinNT path
 
-    void* lower = si.lpMinimumApplicationAddress;
-    void* upper = si.lpMaximumApplicationAddress;
-    MEMORY_BASIC_INFORMATION mbi;
-    char map_name[MAX_PATH+1];
-    memset(map_name, 0, MAX_PATH+1);
-    while((uintptr_t)lower < (uintptr_t)upper) {
-        VirtualQuery(lower, &mbi, sizeof(mbi));
-        assert(mbi.BaseAddress == lower);
+    mem::TraverseAllProcessMemory([&](const MEMORY_BASIC_INFORMATION& mbi, const MEMMAP_RANGE& range) {
         void* alloc = mbi.AllocationBase;
         size_t size = mbi.RegionSize;
         DWORD genre = mbi.Type; // MEM_IMAGE, MEM_MAPPED or MEM_PRIVATE
@@ -102,11 +95,10 @@ int main(int, char **) {
             "???";
 
         // 'A' because locales s*ck. Speak whatever language you like, but system files should be named in ASCII.
-        std::size_t str_length = GetMappedFileNameA(GetCurrentProcess(), lower, map_name, MAX_PATH);
+        std::size_t str_length = GetMappedFileNameA(GetCurrentProcess(), range.lower, map_name, MAX_PATH);
         map_name[str_length] = '\0';
         char* rchr = strrchr(map_name, '\\');
-        lower = (void*)((uintptr_t)lower + size); // step next
-        char* filename = rchr ? rchr+1 : map_name;
+        char* filename = (kTrimPath && rchr) ? rchr+1 : map_name;
 
         const char* vis_genre =
             (MEM_IMAGE == genre)
@@ -117,8 +109,9 @@ int main(int, char **) {
                 ? "data" :
             "----";
 
-        printf(" %p-%p %8x %s%s %s %s %s\n", mbi.BaseAddress, lower, size, vis_asreq.c_str(), vis_asnow.c_str(), vis_genre, vis_state, filename);
-    }
+        printf(" %p-%p %8x %s%s %s %s %s\n", range.lower, range.upper, MEMMAP_RANGE_SIZE(range),
+                vis_asreq.c_str(), vis_asnow.c_str(), vis_genre, vis_state, filename);
+    }, &mem::Reserved); // show all "logical" application memory ranges, not only resident memory
 
     return 0;
 }

@@ -39,5 +39,6 @@ install_headers(
 install_headers(
     files('include/memmap/conf.h'),
     files('include/memmap/proc.h'),
+    files('include/memmap/iter.h'),
     subdir: 'memmap',
 )

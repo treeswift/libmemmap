@@ -1,15 +1,64 @@
 #include "memmap/conf.h"
+#include "memmap/iter.h"
 #include "memmap/proc.h"
 
 #include <windows.h>
 #include <errno.h>
+#include <assert.h>
 #include <algorithm>
 
 namespace {
 
 bool _mincore_strict_policy = false;
 
+mem::RangeVisitor CPPize(memmap_range_visitor purefunc_visitor) {
+    return [=](const MEMORY_BASIC_INFORMATION& mbi, const MEMMAP_RANGE& range) {
+        (*purefunc_visitor)(&mbi, &range);
+    };
+}
+
+mem::RangePredicate CPPize(memmap_range_predicate purefunc_predicate) {
+    return [=](const MEMORY_BASIC_INFORMATION& mbi) {
+        return (*purefunc_predicate)(&mbi);
+    };
+}
+
 } // anonymous
+
+namespace mem
+{
+
+MEMMAP_RANGE Range(void* base, std::size_t size) {
+    return MEMMAP_RANGE{base, (char*)base + size};
+}
+
+void Traverse(const MEMMAP_RANGE& range, RangeVisitor visitor, RangePredicate predicate) {
+    MEMMAP_RANGE subrange = range;
+    MEMORY_BASIC_INFORMATION mbi;
+    while((uintptr_t)subrange.lower < (uintptr_t)range.upper) {
+        VirtualQuery(subrange.lower, &mbi, sizeof(mbi));
+        assert(mbi.BaseAddress == subrange.lower);
+        void* homog_until = (void*)((uintptr_t)subrange.lower + mbi.RegionSize);
+
+        if(predicate(mbi)) {
+            subrange.upper = (void*)(std::min((uintptr_t)homog_until, (uintptr_t)range.upper));
+            visitor(mbi, subrange);
+        }
+
+        subrange.lower = homog_until;
+    }
+}
+
+void TraverseAllProcessMemory(RangeVisitor visitor, RangePredicate predicate) {
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+
+    void* lower = si.lpMinimumApplicationAddress;
+    void* upper = si.lpMaximumApplicationAddress;
+    Traverse({lower, upper}, visitor, predicate);
+}
+
+} // namespace mem
 
 extern "C" {
 
@@ -43,6 +92,26 @@ long memmap_sysconf(int name) {
     }
     errno = EINVAL;
     return -1;
+}
+
+void memmap_traverse_addresses_from_to(void* lower, void* upper, memmap_range_visitor visitor, memmap_range_predicate predicate) {
+    mem::Traverse({lower, upper}, CPPize(visitor), CPPize(predicate));
+}
+
+void memmap_traverse_addresses_from_for(void* base, size_t size, memmap_range_visitor visitor, memmap_range_predicate predicate) {
+    mem::Traverse(mem::Range(base, size), CPPize(visitor), CPPize(predicate));
+}
+
+void memmap_traverse_committed_from_to(void* lower, void* upper, memmap_range_visitor visitor) {
+    mem::Traverse({lower, upper}, CPPize(visitor));
+}
+
+void memmap_traverse_committed_from_for(void* base, size_t size, memmap_range_visitor visitor) {
+    mem::Traverse(mem::Range(base, size), CPPize(visitor));
+}
+
+void memmap_traverse_all_process_memory(memmap_range_visitor visitor, memmap_range_predicate predicate) {
+    mem::TraverseAllProcessMemory(CPPize(visitor), CPPize(predicate));
 }
 
 int mincore(void* start, size_t length, unsigned char* status) {
