@@ -64,7 +64,22 @@ int set_handle_from_posix_fd_hook(handle_from_posix_fd_hook hook, void * hint);
 
 /**
  * As there is no obvious way to determine `fd` access mode from itself or the
- * corresponding file HANDLE, and there is at most one FileMapping object 
+ * corresponding file HANDLE, and there is at most one FileMapping object per
+ * file handle (and, therefore, per file descriptor), the following modes have
+ * been suggested to infer the "write" and "access" bits:
+ *
+ * *_eager => assume maximum access;
+ * *_probe => try grabbing as much as possible;
+ * *_asreq => request as much access as the specific mapping requests.
+ *
+ * This is, of course, a hackaround. A better solution would rather duplicate
+ * and/or reopen file handles when an incompatible access mode is required.
+ * However, in practice, this is mostly needed to support executable files
+ * (that contain code, readonly data and modifiable "initial" data together),
+ * and that case is covered by `set_mmap_apply_executable_image_sections()`.
+ * 
+ * Therefore, this API should be considered unstable and *_asreq assumed to
+ * be the current hardcoded behavior; but we will monitor real-life use cases.
  */
 enum fd_access_inference_policy
 {
@@ -92,6 +107,15 @@ void set_mmap_strict_policy(int strict);
  * !parse_coff => apply `prot` flags verbatim (default POSIX API behavior).
  */
 void set_mmap_apply_executable_image_sections(int parse_coff);
+
+/**
+ * Pass nonzero to decommit memory affected by MADV_DONTNEED:
+ * decommit => subsequent accesses cause a segfault
+ * !decommit => subsequent read accesses "see" undefined contents
+ *              (affected memory pages may need to be repopulated)
+ * The default policy is !decommit. If decommit is enabled, the next option applies:
+ */
+void set_madvise_dontneed_decommits(int decommit);
 
 /**
  * When memory is offered back to the OS with MADV_DONTNEED, resoluteness indicates

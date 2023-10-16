@@ -70,7 +70,8 @@ bool _mmap_apply_executable_image_sections = false;
 
 constexpr int kOfferPriorityNormal = VmOfferPriorityNormal; // 4
 constexpr int kOfferPriorityRange = VmOfferPriorityNormal - VmOfferPriorityVeryLow; // 4-1
-OFFER_PRIORITY _offer_prio = VmOfferPriorityLow;
+static bool _offer_decommit = false;
+static OFFER_PRIORITY _offer_prio = VmOfferPriorityLow;
 
 uintptr_t RoundDown(void* &addr, size_t &length) {
     uintptr_t base_addr = (uintptr_t) addr;
@@ -92,6 +93,10 @@ int RoundUpFailFast(size_t &length) {
     length -= length % _page_size;
     return (_mmap_strict_policy && (oldlen != length))
         ? (errno = EINVAL, -1) : 0;
+}
+
+int FailIfStrict(int errcode = EINVAL) {
+    return _mmap_strict_policy ? (errno = errcode, -1) : 0;
 }
 
 } // anonymouys / nonreusable
@@ -150,6 +155,10 @@ void set_mmap_strict_policy(int strict) {
 
 void set_mmap_apply_executable_image_sections(int parse_coff) {
     _mmap_apply_executable_image_sections = parse_coff;
+}
+
+void set_madvise_dontneed_decommits(int decommit) {
+    _offer_decommit = decommit;
 }
 
 void set_madvise_offer_resoluteness(int res) {
@@ -354,15 +363,24 @@ int madvise(void* addr, size_t length, int advice) {
 
     switch(advice){
         case MADV_DONTNEED:
-            return &OfferVirtualMemory && OfferVirtualMemory(addr, length, _offer_prio) == ERROR_SUCCESS ? 0 : (errno = ENOMEM, -1);
+            if(_offer_decommit) {
+                return &OfferVirtualMemory && OfferVirtualMemory(addr, length, _offer_prio) == ERROR_SUCCESS
+                    || FailIfStrict(ENOMEM);
+            } else {
+                return &DiscardVirtualMemory && DiscardVirtualMemory(addr, length) == ERROR_SUCCESS 
+                    || FailIfStrict(ENOMEM);
+            }
         case MADV_WILLNEED:
-            return &ReclaimVirtualMemory && ReclaimVirtualMemory(addr, length) == ERROR_SUCCESS ? 0 : (errno = ENOMEM, -1);
+            return &ReclaimVirtualMemory && ReclaimVirtualMemory(addr, length) == ERROR_SUCCESS
+                || FailIfStrict(ENOMEM);
         case MADV_DONTDUMP:
-            return WerExcludeMemoryBlock(addr, length) ? 0 : (errno = EAGAIN, -1);
+            return WerExcludeMemoryBlock(addr, length)
+                || FailIfStrict(EAGAIN);
         case MADV_DODUMP:
-            return (WerRegisterMemoryBlock(addr, length) == S_OK) ? 0: (errno = EAGAIN, -1);
+            return WerRegisterMemoryBlock(addr, length) == S_OK
+                || FailIfStrict(EAGAIN);
         default:
-            return _mmap_strict_policy ? (errno = EINVAL, -1) : 0;
+            return FailIfStrict(); // EINVAL
     }
 }
 
