@@ -385,8 +385,8 @@ int madvise(void* addr, size_t length, int advice) {
 }
 
 int mlock(const void* addr, size_t length) {
-    // VirtualLock
-    return -1;
+    // screw the strict mode and page size alignment; Windows is more liberal
+    return VirtualLock(const_cast<void*>(addr), length) ? 0 : (errno = ENOMEM, -1);
 }
 
 int mlock2(const void* addr, size_t length, int flags) {
@@ -395,8 +395,8 @@ int mlock2(const void* addr, size_t length, int flags) {
 }
 
 int munlock(const void* addr, size_t length) {
-    // VirtualUnlock
-    return -1;
+    // ditto
+    return VirtualUnlock(const_cast<void*>(addr), length) ? 0 : (errno = EAGAIN, -1);
 }
 
 int mlockall(int flags) {
