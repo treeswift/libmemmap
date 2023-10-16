@@ -76,6 +76,12 @@ typedef int32_t off_t
 #define MADV_DONTDUMP 0x10
 #define MADV_DODUMP   0x11
 
+#define MLOCK_ONFAULT 0x10
+
+#define MCL_CURRENT 0x1
+#define MCL_FUTURE  0x2 /* unsupported */
+#define MCL_ONFAULT 0x4 /* unsupported */
+
 /* __BEGIN_DECLS */
 #ifdef __cplusplus
 extern "C" {
@@ -89,7 +95,8 @@ int msync(void* addr, size_t length, int flags);
 int madvise(void* addr, size_t length, int advice);
 #define posix_madvise madvise
 
-int mlock (const void* addr, size_t length);
+int mlock(const void* addr, size_t length);
+int mlock2(const void* addr, size_t length, int flags); /* Linux specific; our impl identical to `mlock` */
 int munlock(const void* addr, size_t length);
 
 /* Not atomic on Windows */

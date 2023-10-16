@@ -11,6 +11,27 @@
 #include <io.h> // _get_osfhandle
 #include <assert.h>
 
+extern "C" {
+
+////////////////////////
+// Advice (`madvise`) //
+////////////////////////
+
+#if _WIN32_WINNT < _WIN32_WINNT_WINBLUE
+  typedef enum _OFFER_PRIORITY {
+    VmOfferPriorityVeryLow = 1,
+    VmOfferPriorityLow,
+    VmOfferPriorityBelowNormal,
+    VmOfferPriorityNormal
+  } OFFER_PRIORITY;
+
+  /* WINBASEAPI */ DWORD WINAPI DiscardVirtualMemory (PVOID VirtualAddress, SIZE_T Size) __attribute((weak));
+  /* WINBASEAPI */ DWORD WINAPI OfferVirtualMemory (PVOID VirtualAddress, SIZE_T Size, OFFER_PRIORITY Priority) __attribute((weak));
+  /* WINBASEAPI */ DWORD WINAPI ReclaimVirtualMemory (PVOID VirtualAddress, SIZE_T Size) __attribute((weak));
+#endif
+
+} // extern "C"
+
 namespace
 {
 using namespace mem;
@@ -333,9 +354,9 @@ int madvise(void* addr, size_t length, int advice) {
 
     switch(advice){
         case MADV_DONTNEED:
-            return OfferVirtualMemory(addr, length, _offer_prio) == ERROR_SUCCESS ? 0 : (errno = ENOMEM, -1);
+            return &OfferVirtualMemory && OfferVirtualMemory(addr, length, _offer_prio) == ERROR_SUCCESS ? 0 : (errno = ENOMEM, -1);
         case MADV_WILLNEED:
-            return ReclaimVirtualMemory(addr, length) == ERROR_SUCCESS ? 0 : (errno = ENOMEM, -1);
+            return &ReclaimVirtualMemory && ReclaimVirtualMemory(addr, length) == ERROR_SUCCESS ? 0 : (errno = ENOMEM, -1);
         case MADV_DONTDUMP:
             return WerExcludeMemoryBlock(addr, length) ? 0 : (errno = EAGAIN, -1);
         case MADV_DODUMP:
@@ -345,9 +366,14 @@ int madvise(void* addr, size_t length, int advice) {
     }
 }
 
-int mlock (const void* addr, size_t length) {
+int mlock(const void* addr, size_t length) {
     // VirtualLock
     return -1;
+}
+
+int mlock2(const void* addr, size_t length, int flags) {
+    (void) flags;
+    return mlock(addr, length);
 }
 
 int munlock(const void* addr, size_t length) {

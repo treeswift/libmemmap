@@ -122,7 +122,7 @@ void test_mmap() {
                        : "nope, `msync`ing a private view is not allowed\n");
     _commit(hc); // FlushFileBuffers()
 
-    // just make sure it doesn't crash
+    // just make sure it doesn't crash (we'll provide a WinRT fallback later)
     void* rnddown = (char*)holycow - (kCowField % page_size);
     madvise(rnddown, page_size, MADV_WILLNEED); // should be a no-op
     madvise(rnddown, page_size, MADV_DONTNEED); // offer to the kernel
