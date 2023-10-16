@@ -2,6 +2,7 @@
 #include "memmap/proc.h"
 
 #include <windows.h>
+#include <psapi.h> /* GetMappedFileName */
 
 #include <string>
 #include <stdio.h>
@@ -67,8 +68,10 @@ int main(int, char **) {
 
     void* lower = si.lpMinimumApplicationAddress;
     void* upper = si.lpMaximumApplicationAddress;
+    MEMORY_BASIC_INFORMATION mbi;
+    char map_name[MAX_PATH+1];
+    memset(map_name, 0, MAX_PATH+1);
     while((uintptr_t)lower < (uintptr_t)upper) {
-        MEMORY_BASIC_INFORMATION mbi;
         VirtualQuery(lower, &mbi, sizeof(mbi));
         assert(mbi.BaseAddress == lower);
         void* alloc = mbi.AllocationBase;
@@ -89,14 +92,6 @@ int main(int, char **) {
             vis_asreq += " -> ";
         }
 
-        const char* vis_genre =
-            (MEM_IMAGE == genre)
-                ? "exec" :
-            (MEM_MAPPED == genre)
-                ? "file" :
-            (MEM_PRIVATE == genre)
-                ? "data" :
-            "----";
         const char* vis_state =
             (MEM_COMMIT == state)
                 ? "COM" :
@@ -106,8 +101,23 @@ int main(int, char **) {
                 ? "---" :
             "???";
 
+        // 'A' because locales s*ck. Speak whatever language you like, but system files should be named in ASCII.
+        std::size_t str_length = GetMappedFileNameA(GetCurrentProcess(), lower, map_name, MAX_PATH);
+        map_name[str_length] = '\0';
+        char* rchr = strrchr(map_name, '\\');
         lower = (void*)((uintptr_t)lower + size); // step next
-        printf(" %p-%p %8x %s%s %s %s\n", mbi.BaseAddress, lower, size, vis_asreq.c_str(), vis_asnow.c_str(), vis_genre, vis_state);
+        char* filename = rchr ? rchr+1 : map_name;
+
+        const char* vis_genre =
+            (MEM_IMAGE == genre)
+                ? "exec" :
+            (MEM_MAPPED == genre)
+                ? (*filename ? "file" : "swap") :
+            (MEM_PRIVATE == genre)
+                ? "data" :
+            "----";
+
+        printf(" %p-%p %8x %s%s %s %s %s\n", mbi.BaseAddress, lower, size, vis_asreq.c_str(), vis_asnow.c_str(), vis_genre, vis_state, filename);
     }
 
     return 0;
