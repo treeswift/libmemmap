@@ -90,7 +90,7 @@ extern "C" {
 void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off);
 int munmap(void* addr,  size_t length);
 
-int mprotect(void* addr, size_t length, int flags);
+int mprotect(void* addr, size_t length, int prot);
 int msync(void* addr, size_t length, int flags);
 int madvise(void* addr, size_t length, int advice);
 #define posix_madvise madvise

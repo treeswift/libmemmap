@@ -4,6 +4,8 @@
 #include "memmap/conf.h"
 #include "memmap/proc.h"
 #include <assert.h>
+#include <eh.h>
+#include <signal.h>
 #include <atomic>
 
 constexpr const char* kTestFile = "test-memmap.dat";
@@ -56,9 +58,15 @@ void ValidateFileData(int fd) {
     assert(read(fd, &readvalue, 4) == 4 && (readvalue == kBackground));
 }
 
+void GroundhogMorning() {
+    errno = 0;
+    SetLastError(0);
+}
+
 long page_size;
 
 void test_lockall() {
+    GroundhogMorning();
     mlockall(MCL_CURRENT);
     munlockall();
     printf("m[un]lockall() test completed, errno=%d\n", errno);
@@ -67,7 +75,7 @@ void test_lockall() {
 
 void test_mincore() {
     // set_mincore_strict_policy(false); // default anyway
-    errno = 0;
+    GroundhogMorning();
 
     // at least two pages (as the starting address might not be a page boundary)
     unsigned char in_core[2];
@@ -99,7 +107,7 @@ void test_mincore() {
 }
 
 void test_mmap() {
-    errno = 0;
+    GroundhogMorning();
     void* my_page = mmap(nullptr, page_size, PROT_DATA, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     printf("mmap(anon) p=%p errno=%d\n", my_page, errno);
     assert(my_page != MAP_FAILED);
@@ -145,6 +153,62 @@ void test_mmap() {
     printf("mmap()/msync() test completed.\n");
 }
 
+volatile bool segfault = false;
+volatile DWORD signal_id = 0;
+
+// // UNIX way:
+// void violators_will_be_signaled(int sig)
+// {
+//     segfault = true;
+//     signal_id = sig;
+//     throw "Hit.";
+// }
+
+// char graveyard[32];
+
+// ^^^ This is not how it works on Windows. Use a VectoredExceptionHandler:
+LONG violators_will_be_prosecuted(_EXCEPTION_POINTERS *ei)
+{
+    signal_id = ei->ExceptionRecord->ExceptionCode;
+    // if(signal_id != EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
+    void* address = ei->ExceptionRecord->ExceptionAddress;
+    DWORD p = PAGE_READWRITE, op = 0u;
+    // VirtualProtect(address, page_size, p, &op); // can't do this in a VEH
+    // Another lame attempt at recovery:
+    // for(DWORD* ptr = &ei->ContextRecord->R0; ptr != &ei->ContextRecord->Sp; ++ptr) {
+    //     if(*ptr == (DWORD)address) *ptr = (DWORD)graveyard;
+    // }
+    segfault = true;
+    exit(0);
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+void test_mprotect() {
+    GroundhogMorning();
+    // see: https://stackoverflow.com/questions/457577/catching-access-violation-exceptions
+    void * my_page = mmap(nullptr, page_size, PROT_DATA, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    write_and_read(my_page);
+    mprotect(my_page, page_size, PROT_READ);
+    printf("mprotect(r--) p=%p errno=%d/%lu\n", my_page, errno, GetLastError()); fflush(stdout);
+    // auto oldsig = signal(SIGSEGV, &violators_will_be_signaled); // duzzntwirk, use VEH:
+    auto handler_handle = AddVectoredExceptionHandler(1U, &violators_will_be_prosecuted);
+    printf("We don't recover gracefully after ARM32 SEGV. Should exit now...\n");
+    // try{
+        *(volatile char*)my_page = '\0';
+    // }
+    // catch(...) {
+    //     segfault = true;
+    // }
+    // assert(segfault);
+    // RemoveVectoredExceptionHandler(handler_handle);
+    // // signal(SIGSEGV, oldsig); // moot
+    // mprotect(my_page, page_size, PROT_DATA);
+    // printf("mprotect(rw-) p=%p errno=%d/%lu\n", my_page, errno, GetLastError()); fflush(stdout);
+    // write_and_read(my_page);
+    printf("mprotect() test failed.\n");
+    exit(1);
+}
+
 int main(int, char **) {
     page_size = getpagesize();
     assert(page_size);
@@ -155,8 +219,9 @@ int main(int, char **) {
     test_mincore();
     test_lockall();
     test_mmap();
-
     unlink(kTestFile);
+
+    test_mprotect(); // must be last, as its successful completion exits abnormally
 
     return 0;
 }

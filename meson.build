@@ -27,6 +27,7 @@ mmtest = executable('test-memdmp',
 mmtest = executable('test-memmap', 
     files('samples/memtest.cpp'),
     include_directories: ['include'],
+    cpp_args: ['-fasync-exceptions'], # '-fseh-exceptions', 
     link_with: [memmap],
     install: true,
   )

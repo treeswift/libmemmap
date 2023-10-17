@@ -330,9 +330,12 @@ int munmap(void* addr, size_t length) {
     return -1;
 }
 
-int mprotect(void* addr, size_t length, int flags) {
-    // mprotect: VirtualProtect
-    return -1;
+int mprotect(void* addr, size_t length, int prot) {
+    // MSDN: "The pages cannot span adjacent reserved regions". Traverse?
+    const DWORD protection = kProtectionTranslationLUT[prot & PROT_MASK];
+    DWORD ignored;
+    _MEMMAP_LOG("VirtualProtect(%p, %lx, %lx)", addr, (DWORD)length, protection);
+    return VirtualProtect(addr, length, protection, &ignored) ? 0 : (errno = EACCES, -1);
 }
 
 int msync(void* addr, size_t length, int flags) {
