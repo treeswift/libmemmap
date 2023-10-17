@@ -327,7 +327,9 @@ int munmap(void* addr, size_t length) {
 
     // For anonymous regions, we do VirtualFree().
 
-    return -1;
+    msync(addr, length, MS_ASYNC); // flush writable file mapping
+    VirtualFree(addr, length, MEM_DECOMMIT); // MEM_RELEASE frees the entire original allocation
+    return 0; // any good reason to fail here? TODO: consider smarter logic regarding file views
 }
 
 int mprotect(void* addr, size_t length, int prot) {

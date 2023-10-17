@@ -219,6 +219,7 @@ int main(int, char **) {
     test_mincore();
     test_lockall();
     test_mmap();
+    // TODO test_munmap()
     unlink(kTestFile);
 
     test_mprotect(); // must be last, as its successful completion exits abnormally
