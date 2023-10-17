@@ -58,6 +58,13 @@ void ValidateFileData(int fd) {
 
 long page_size;
 
+void test_lockall() {
+    mlockall(MCL_CURRENT);
+    munlockall();
+    printf("m[un]lockall() test completed, errno=%d\n", errno);
+}
+
+
 void test_mincore() {
     // set_mincore_strict_policy(false); // default anyway
     errno = 0;
@@ -146,6 +153,7 @@ int main(int, char **) {
     fflush(stdout);
 
     test_mincore();
+    test_lockall();
     test_mmap();
 
     unlink(kTestFile);

@@ -1,6 +1,7 @@
 #include "sys/mman.h"
 #include "memmap/conf.h"
 #include "memmap/proc.h"
+#include "memmap/iter.h"
 
 #include "dbg.h" // tracing
 
@@ -386,31 +387,38 @@ int madvise(void* addr, size_t length, int advice) {
 
 int mlock(const void* addr, size_t length) {
     // screw the strict mode and page size alignment; Windows is more liberal
-    return VirtualLock(const_cast<void*>(addr), length) ? 0 : (errno = ENOMEM, -1);
+    return VirtualLock(const_cast<void*>(addr), length) ? 0 : (errno = EAGAIN, -1);
 }
 
 int mlock2(const void* addr, size_t length, int flags) {
-    (void) flags;
+    (!(flags & MCL_CURRENT) ^ !(flags & MCL_FUTURE)) || FailIfStrict();
     return mlock(addr, length);
 }
 
 int munlock(const void* addr, size_t length) {
     // ditto
-    return VirtualUnlock(const_cast<void*>(addr), length) ? 0 : (errno = EAGAIN, -1);
+    return (VirtualUnlock(const_cast<void*>(addr), length) || !_mmap_strict_policy) ? 0 : (errno = EAGAIN, -1);
 }
 
-int mlockall(int flags) {
+int mlockall(int) {
     // *all: no such shortcuts on Windows. The process will have to iterate through
     //       its entire memory map and lock/unlock all committed pages it encounters.
-    //       (see `mincore` below; its underlying loop can be reused.)
-
-    return -1;
+    int retval = 0;
+    TraverseAllProcessMemory([&](const _MEMORY_BASIC_INFORMATION& mbi, const MEMMAP_RANGE& range) {
+        if(mbi.Protect != PAGE_NOACCESS) { // inaccessible memory cannot be locked
+            retval |= mlock(range.lower, MEMMAP_RANGE_SIZE(range)); // also sets errno
+        }
+    });
+    return retval;
 }
 
 int munlockall() {
     // ditto (see `mlockall`)
-
-    return -1;
+    int retval = 0;
+    TraverseAllProcessMemory([&](const _MEMORY_BASIC_INFORMATION&, const MEMMAP_RANGE& range) {
+        retval |= munlock(range.lower, MEMMAP_RANGE_SIZE(range)); // also sets errno
+    });
+    return retval;
 }
 
 // `mincore` is defined in mem.cpp

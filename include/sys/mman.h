@@ -76,7 +76,7 @@ typedef int32_t off_t
 #define MADV_DONTDUMP 0x10
 #define MADV_DODUMP   0x11
 
-#define MLOCK_ONFAULT 0x10
+#define MLOCK_ONFAULT 0x10 /* unsupported on Windows */
 
 #define MCL_CURRENT 0x1
 #define MCL_FUTURE  0x2 /* unsupported */
