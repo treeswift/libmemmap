@@ -186,8 +186,6 @@ static bool WerExcludeMemoryBlock(const void *address, DWORD size) {
 // POSIX interface //
 /////////////////////
 
-// TODO(dbg): introduce some variadic macro instead of 
-
 void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
     // *** IMPLEMENTATION NOTES (code generation) ***
     // MSDN: "To execute dynamically generated code, use VirtualAlloc to allocate
@@ -328,7 +326,11 @@ int munmap(void* addr, size_t length) {
     // For anonymous regions, we do VirtualFree().
 
     msync(addr, length, MS_ASYNC); // flush writable file mapping
-    VirtualFree(addr, length, MEM_DECOMMIT); // MEM_RELEASE frees the entire original allocation
+    MEMORY_BASIC_INFORMATION mbi;
+    VirtualQuery(addr, &mbi, sizeof(mbi));
+    const DWORD free_flags = (addr == mbi.AllocationBase && length == mbi.RegionSize)
+        ? MEM_RELEASE : MEM_DECOMMIT; // MEM_RELEASE frees the entire original allocation
+    VirtualFree(addr, length, free_flags);
     return 0; // any good reason to fail here? TODO: consider smarter logic regarding file views
 }
 
