@@ -19,7 +19,7 @@ Build the library with [Meson](https://mesonbuild.com)/[Ninja](https://ninja-bui
 
 ## License
 
-`libwusers` is free as in freedom and released into the public domain (where it rightfully belongs)
+`libmemmap` is free as in freedom and released into the public domain (where it rightfully belongs)
 with a no-strings-attached [CC0 license](LICENSE).
 
 ## Support
