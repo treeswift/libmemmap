@@ -1,4 +1,5 @@
 #include "sys/mman.h"
+#include "fatctl/wrap.h"
 #include "memmap/conf.h"
 #include "memmap/proc.h"
 #include "memmap/iter.h"
@@ -50,12 +51,6 @@ constexpr DWORD kProtectionTranslationLUT[] = {
     PAGE_EXECUTE_READWRITE, // ditto, to PAGE_EXECUTE_WRITECOPY
 };
 
-// Global data. No thread safety here at all. AT ALL. Period.
-// All custom logic here must be confined to program startup.
-HANDLE GetOSFHandle(int fd) { return (HANDLE)_get_osfhandle(fd); }
-handle_from_posix_fd_func const kDefFd2HandleFunc = &GetOSFHandle;
-Fd2HANDLE _curFd2HandleImpl = DefFd2Handle();
-
 const long _page_size = getpagesize();
 
 enum class ModusVivendi {
@@ -102,37 +97,11 @@ int FailIfStrict(int errcode = EINVAL) {
 
 } // anonymouys / nonreusable
 
-namespace mem {
-namespace map {
-
-void SetFd2Handle(Fd2HANDLE delegate) {
-    _curFd2HandleImpl = delegate;
-}
-
-Fd2HANDLE DefFd2Handle() {
-    return kDefFd2HandleFunc;
-}
-
-} // namespace map
-} // namespace mem
-
 extern "C" {
 
 ///////////////////
 // configuration //
 ///////////////////
-
-handle_from_posix_fd_func def_handle_from_posix_fd_func() {
-    return kDefFd2HandleFunc;
-}
-
-int set_handle_from_posix_fd_func(handle_from_posix_fd_func func) {
-    return func ? SetFd2Handle(func), 0 : (errno = EINVAL), -1;
-}
-
-int set_handle_from_posix_fd_hook(handle_from_posix_fd_hook hook, void * hint) {
-    return hook ? SetFd2Handle([=](int fd){ return hook(fd, hint); }), 0 : (errno = EINVAL), -1;
-}
 
 bool TrustTheHeap() {
     return _modus_vivendi == ModusVivendi::NORMAL;
@@ -224,7 +193,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t off) {
 
         // ... handtracking here (unless emergency mode is on)
 
-        HANDLE hfile = _curFd2HandleImpl(fd);
+        HANDLE hfile = get_handle_from_posix_fd(fd);
         // The handle CAN be INVALID_HANDLE_VALUE. In this case, Windows creates
         // a mapping backed by the system page file. However, this behavior is
         // not expected in POSIX API and we simply report an error and quit.

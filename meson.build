@@ -3,6 +3,7 @@ project('libmemmap', 'cpp',
     default_options : ['warning_level=3'],
   )
 
+# add_global_arguments('-D_WIN32_WINNT=_WIN32_WINNT_WIN8', language: 'cpp') # Win8+
 # add_global_arguments('-D_WIN32_WINNT=0x0603', language: 'cpp') # Win10+
 
 
@@ -13,7 +14,7 @@ memmap = shared_library('memmap',
       'src/shm.cpp',
     ),
     include_directories: ['include'],
-    link_args: ['-lkernel32'],
+    link_args: ['-lkernel32', '-lfatctl'],
     install: true,
   )
 
